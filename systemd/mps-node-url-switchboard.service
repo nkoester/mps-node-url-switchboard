@@ -1,0 +1,13 @@
+[Unit]
+Description=MPS node URL switchboard: route MPS node URLs to a chosen MPS instance
+Documentation=file://@DOCDIR@/README.md
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/mps-node-url-switchboard serve
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
