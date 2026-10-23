@@ -81,6 +81,49 @@ class ParsingTest(unittest.TestCase):
             argv = [f"-Didea.properties.file={props}", "-Didea.paths.selector=MPS2025.1"]
             self.assertEqual(mph.resolve_config_dir(argv, home), Path("/from/file"))
 
+    def test_find_mps_processes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install = root / "MPS-2026.1"
+            (install / "bin").mkdir(parents=True)
+            for name in ("mps", "fsnotifier"):
+                (install / "bin" / name).touch()
+            (install / "product-info.json").write_text(json.dumps({
+                "productCode": "MPS", "envVarBaseName": "MPS", "dataDirectoryName": "MPS2026.1",
+                "launch": [{"os": "Linux", "launcherPath": "bin/mps"}],
+            }))
+            mpsconfig = root / ".mpsconfig" / "MPS-2026-1-p"
+            mpsconfig.mkdir(parents=True)
+            (mpsconfig / "mps64.vmoptions").write_text("-Xmx4g\n-Dide.httpsupport.internalPort=63322\n")
+            (mpsconfig / "idea.properties").write_text(f"idea.config.path={mpsconfig / 'config'}\n")
+            proc = root / "proc"
+
+            def add(pid, argv, exe=None, environ=None):
+                (proc / pid).mkdir(parents=True)
+                (proc / pid / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+                if exe:
+                    (proc / pid / "exe").symlink_to(exe)
+                if environ is not None:
+                    (proc / pid / "environ").write_bytes(b"\0".join(f"{k}={v}".encode() for k, v in environ.items()))
+
+            add("10", ["java", "-Didea.paths.selector=MPS2025.1", mph.MPS_MAIN_CLASS])
+            add("20", [str(install / "bin" / "mps")], install / "bin" / "mps", {
+                "MPS_VM_OPTIONS": mpsconfig / "mps64.vmoptions", "MPS_PROPERTIES": mpsconfig / "idea.properties",
+            })
+            add("30", [str(install / "bin" / "mps")], install / "bin" / "mps", {})
+            add("40", [str(install / "bin" / "fsnotifier")], install / "bin" / "fsnotifier", {})
+            add("50", ["python3", "x.py"], Path(sys.executable))
+            (proc / "self").mkdir()
+
+            processes = mph.find_mps_processes(proc)
+            self.assertEqual(sorted(processes), [10, 20, 30])
+            home = Path("/home/u")
+            self.assertEqual(mph.resolve_config_dir(processes[20], home), mpsconfig / "config")
+            self.assertIn("-Dide.httpsupport.internalPort=63322", processes[20])
+            self.assertNotIn("-Xmx4g", processes[20])
+            # No launcher environment -> default config dir of the installation
+            self.assertEqual(mph.resolve_config_dir(processes[30], home), home / ".config/JetBrains/MPS2026.1")
+
     def test_mpsconfig_id(self):
         cfg = Path("/home/u/git/p/.mpsconfig/MPS-2025-1-4-linux-p/config")
         self.assertEqual(mph.mpsconfig_id(cfg), "MPS-2025-1-4-linux-p")

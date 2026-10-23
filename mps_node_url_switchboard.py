@@ -62,7 +62,11 @@ class Instance:
 
 
 def find_mps_processes(proc_root: Path = Path("/proc")) -> dict[int, list[str]]:
-    """Return argv of all MPS processes owned by the current user, keyed by pid."""
+    """Return argv of all MPS processes owned by the current user, keyed by pid.
+
+    Processes started by the native launcher (`bin/mps`, MPS 2026.1+) run the JVM in-process, so their
+    argv carries no JVM options; for those the `-D` options the launcher passes on are appended.
+    """
     uid = os.getuid()
     result: dict[int, list[str]] = {}
     for entry in proc_root.iterdir():
@@ -77,7 +81,50 @@ def find_mps_processes(proc_root: Path = Path("/proc")) -> dict[int, list[str]]:
         argv = [arg.decode(errors="replace") for arg in raw.split(b"\0") if arg]
         if MPS_MAIN_CLASS in argv:
             result[int(entry.name)] = argv
+        elif (launcher_args := native_launcher_args(entry)) is not None:
+            result[int(entry.name)] = argv + launcher_args
     return result
+
+
+def native_launcher_args(pid_dir: Path) -> list[str] | None:
+    """JVM `-D` options of a process running an MPS native launcher, None for any other process.
+
+    Mirrors what the launcher reads: `<BASE>_VM_OPTIONS` and `<BASE>_PROPERTIES` from the environment,
+    the paths selector from `product-info.json` of the installation.
+    """
+    try:
+        exe = Path(os.readlink(pid_dir / "exe"))
+    except OSError:
+        return None
+    install = exe.parent.parent
+    try:
+        info = json.loads((install / "product-info.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(info, dict) or info.get("productCode") != "MPS":
+        return None
+    launchers = {install / launch["launcherPath"] for launch in info.get("launch", [])
+                 if isinstance(launch, dict) and isinstance(launch.get("launcherPath"), str)}
+    if exe not in launchers:
+        return None
+    try:
+        raw = (pid_dir / "environ").read_bytes()
+    except OSError:
+        raw = b""
+    environ = dict(var.decode(errors="replace").split("=", 1) for var in raw.split(b"\0") if b"=" in var)
+    base = info.get("envVarBaseName") or "MPS"
+    args = []
+    if vm_options := environ.get(f"{base}_VM_OPTIONS"):
+        try:
+            lines = Path(vm_options).read_text(errors="replace").splitlines()
+        except OSError:
+            lines = []
+        args.extend(line.strip() for line in lines if line.strip().startswith("-D"))
+    if properties := environ.get(f"{base}_PROPERTIES"):
+        args.append(f"-Didea.properties.file={properties}")
+    if selector := info.get("dataDirectoryName"):
+        args.append(f"-Didea.paths.selector={selector}")
+    return args
 
 
 def parse_proc_net_tcp(text: str) -> dict[int, int]:
