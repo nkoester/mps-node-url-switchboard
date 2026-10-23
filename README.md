@@ -8,7 +8,12 @@ the page stays open and a side panel shows each forwarded link, the target insta
 the outcome MPS reports: "Node opened" (with node and concept), "Node not found" (MPS answers 200 either way, so
 the reply text is read), "No project open in MPS", or an error. Only an opened node clears the selected link. The history of handled links is shown on the same page.
 
-![Switchboard page: running MPS instances, forward panel and link history](screenshot.png)
+<table>
+  <tr>
+    <td width="50%"><img src="screenshot.png" alt="Switchboard page: running MPS instances, forward panel and link history"></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/05d85517-bf2f-4ae9-a008-696398807579" controls muted width="100%"></video></td>
+  </tr>
+</table>
 
 - Linux only for now: instance discovery reads `/proc`, window focusing uses sway/wmctrl, autostart is a systemd user unit
 - Python 3 stdlib only, single file: `mps_node_url_switchboard.py`
